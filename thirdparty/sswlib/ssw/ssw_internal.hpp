@@ -56,30 +56,4 @@
  */
 #define kroundup32(x) (--(x), (x)|=(x)>>1, (x)|=(x)>>2, (x)|=(x)>>4, (x)|=(x)>>8, (x)|=(x)>>16, ++(x))
 
-typedef struct {
-  uint16_t score;
-  int32_t ref;   //0-based position
-  int32_t read;    //alignment ending position on read, 0-based
-} alignment_end;
-
-struct _profile_sse2{
-  __m128i* profile_byte;  // 0: none
-  __m128i* profile_word;  // 0: none
-  const int8_t* read;
-  const int8_t* mat;
-  int32_t readLen;
-  int32_t n;
-  uint8_t bias;
-};
-
-struct _profile_avx2{
-  __m256i* profile_byte;  // 0: none
-  __m256i* profile_word;  // 0: none
-  const int8_t* read;
-  const int8_t* mat;
-  int32_t readLen;
-  int32_t n;
-  uint8_t bias;
-};
-
 

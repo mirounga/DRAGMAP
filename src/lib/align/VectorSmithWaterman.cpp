@@ -22,16 +22,11 @@ namespace align {
 
 void VectorSmithWaterman::destroyReadContext(int readIdx)
 {
-#ifdef __AVX2__
-  init_destroy_avx2(profile_[readIdx]);
-  init_destroy_avx2(profileRev_[readIdx]);
-#else
-  init_destroy_sse2(profile_[readIdx]);
-  init_destroy_sse2(profileRev_[readIdx]);
-#endif
+  delete profile_[readIdx];
+  delete profileRev_[readIdx];
 
-  profile_[readIdx]    = NULL;
-  profileRev_[readIdx] = NULL;
+  profile_[readIdx]    = nullptr;
+  profileRev_[readIdx] = nullptr;
 }
 
 void VectorSmithWaterman::initReadContext(
@@ -52,19 +47,10 @@ void VectorSmithWaterman::initReadContext(
   const int8_t* queryBeginInt    = (int8_t*)query_[readIdx].data();
   const int8_t* queryRevBeginInt = (int8_t*)queryRev_[readIdx].data();
 
-#ifdef __AVX2__
-  // AVX2 variant initializes profile only for 8-bit scoring (last argument 0),
-  // 16-bit scoring is initialized only when needed
-  profile_[readIdx] =
-      ssw_init_avx2(queryBeginInt, querySize_[readIdx], sswScoringMat_, sswAlphabetSize_, sswBias_, 0);
+  profile_[readIdx] = 
+      s_profile::create(queryBeginInt, querySize_[readIdx], sswScoringMat_, sswAlphabetSize_, sswBias_, 2);
   profileRev_[readIdx] =
-      ssw_init_avx2(queryRevBeginInt, querySize_[readIdx], sswScoringMat_, sswAlphabetSize_, sswBias_, 0);
-#else
-  profile_[readIdx] =
-      ssw_init_sse2(queryBeginInt, querySize_[readIdx], sswScoringMat_, sswAlphabetSize_, sswBias_, 2);
-  profileRev_[readIdx] =
-      ssw_init_sse2(queryRevBeginInt, querySize_[readIdx], sswScoringMat_, sswAlphabetSize_, sswBias_, 2);
-#endif
+      s_profile::create(queryRevBeginInt, querySize_[readIdx], sswScoringMat_, sswAlphabetSize_, sswBias_, 2);
 }
 
 // returns alignment score
@@ -86,11 +72,7 @@ uint16_t VectorSmithWaterman::align(
   // const int querySize = std::distance(queryBeginInt, queryEndInt);
   const int dbSize = std::distance(databaseBeginInt, databaseEndInt);
 
-#ifdef __AVX2__
-  s_profile_avx2* profile;
-#else
-  s_profile_sse2* profile;
-#endif
+  s_profile* profile;
 
   // use the already built profile
   int querySize = querySize_[readIdx];
@@ -99,8 +81,6 @@ uint16_t VectorSmithWaterman::align(
   } else {
     profile = profile_[readIdx];
   }
-
-  s_align* result;
 
   uint8_t flag = 0;
   //flag |= 0x08;  // report ref position
@@ -111,13 +91,7 @@ uint16_t VectorSmithWaterman::align(
   int32_t  filterd = 0;
   int32_t  maskLen = querySize / 2;
 
-  result =
-#ifdef __AVX2__
-      ssw_align_avx2(
-#else
-      ssw_align_sse2(
-#endif
-          profile, databaseBeginInt, dbSize, gapInit_, gapExtend_, flag, filters, filterd, maskLen);
+  s_align* result = profile->align(databaseBeginInt, dbSize, gapInit_, gapExtend_, flag, filters, filterd, maskLen);
 
   this->getCigarOperations(*result, querySize, cigar);
 
@@ -139,7 +113,7 @@ uint16_t VectorSmithWaterman::align(
 
   score = result->score1;
 
-  align_destroy(result);
+  delete result;
   uint16_t unclipScoreAdjsutment = (softClipStart ? 0 : unclipScore_) + (softClipEnd ? 0 : unclipScore_);
   unclipScoreAdjsutment          = std::min(unclipScoreAdjsutment, score);
   return score - unclipScoreAdjsutment;

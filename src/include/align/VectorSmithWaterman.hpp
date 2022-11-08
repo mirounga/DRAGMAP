@@ -96,13 +96,8 @@ private:
   int                                       sswAlphabetSize_;
   int32_t                                   sswBias_;
   std::array<int, 2>                        querySize_;
-#ifdef __AVX2__
-  std::array<s_profile_avx2*, 2> profile_;
-  std::array<s_profile_avx2*, 2> profileRev_;
-#else
-  std::array<s_profile_sse2*, 2> profile_;
-  std::array<s_profile_sse2*, 2> profileRev_;
-#endif
+  std::array<s_profile*, 2> profile_;
+  std::array<s_profile*, 2> profileRev_;
 };
 
 }  // namespace align

@@ -40,14 +40,13 @@
 #define MAPSTR "MIDNSHP=X"
 #define BAM_CIGAR_SHIFT 4u
 
-/*!	@typedef	structure of the query profiles	*/
-struct _profile_sse2;
-typedef struct _profile_sse2 s_profile_sse2;
 
-#ifdef __AVX2__
-struct _profile_avx2;
-typedef struct _profile_avx2 s_profile_avx2;
-#endif
+struct alignment_end{
+  uint16_t score;
+  int32_t ref;   //0-based position
+  int32_t read;    //alignment ending position on read, 0-based
+};
+
 
 /*!	@typedef	structure of the alignment result
 	@field	score1	the best alignment score
@@ -63,7 +62,8 @@ typedef struct _profile_avx2 s_profile_avx2;
 					cigar = 0 when the best alignment path is not available
 	@field	cigarLen	length of the cigar string; cigarLen = 0 when the best alignment path is not available
 */
-typedef struct {
+struct s_align{
+	~s_align();
 	uint16_t score1;
 	uint16_t score2;
 	int32_t ref_begin1;
@@ -73,13 +73,62 @@ typedef struct {
 	int32_t ref_end2;
 	uint32_t* cigar;
 	int32_t cigarLen;
-} s_align;
+};
 
+class s_profile{
+    protected:
+		s_profile(const int8_t* _read, const int32_t _readLen, const int8_t* _mat, const int32_t _n, const int32_t _bias);
+		void init (const int8_t score_size);
+    protected:
+		virtual int8_t* profile_byte_init(const int8_t* read_num);
+		virtual int16_t* profile_word_init(const int8_t* read_num);
+		virtual int8_t* profile_byte_rev(const int8_t* read_num, const int32_t readLen);
+		virtual int16_t* profile_word_rev(const int8_t* read_num, const int32_t readLen);
 
-int32_t ssw_get_bias (
-    const int8_t* mat, const int32_t n);
+    protected:
+		 /* Striped Smith-Waterman
+		   Record the highest score of each reference position.
+		   Return the alignment score and ending position of the best alignment, 2nd best alignment, etc.
+		   Gap begin and gap extension are different.
+		   wight_match > 0, all other weights < 0.
+		   The returned positions are 0-based.
+		 */
+		virtual alignment_end* ssw_byte (const int8_t* ref,
+        int8_t ref_dir,	// 0: forward ref; 1: reverse ref
+        int32_t refLen,
+        int32_t readLen,
+        const uint8_t weight_gapO, /* will be used as - */
+        const uint8_t weight_gapE, /* will be used as - */
+		const int8_t* profile,
+        uint8_t terminate,	/* the best alignment score: used to terminate
+												       the matrix calculation when locating the
+												       alignment beginning point. If this score
+												       is set to 0, it will not be used */
+        int32_t maskLen) = 0;
 
+    virtual alignment_end* ssw_word(const int8_t* ref,
+        int8_t ref_dir,	// 0: forward ref; 1: reverse ref
+        int32_t refLen,
+        int32_t readLen,
+        const uint8_t weight_gapO, /* will be used as - */
+        const uint8_t weight_gapE, /* will be used as - */
+		const int16_t* profile,
+        uint16_t terminate,	/* the best alignment score: used to terminate
+												       the matrix calculation when locating the
+												       alignment beginning point. If this score
+												       is set to 0, it will not be used */
+        int32_t maskLen) = 0;
 
+      int8_t* _profile_byte;  // 0: none
+      int16_t* _profile_word;  // 0: none
+      const int8_t* _read;
+      const int8_t* _mat;
+      int32_t _readLen;
+      int32_t _n;
+      uint8_t _bias;
+
+	  s_profile* _baseline;
+  public:
 /*!	@function	Create the query profile using the query sequence.
 	@param	read	pointer to the query sequence; the query sequence needs to be numbers
 	@param	readLen	length of the query sequence
@@ -98,27 +147,9 @@ int32_t ssw_get_bias (
 			 -2 -2 -2  2 //T
 			mat is the pointer to the array {2, -2, -2, -2, -2, 2, -2, -2, -2, -2, 2, -2, -2, -2, -2, 2}
 */
-s_profile_sse2* ssw_init_sse2 (
-    const int8_t* read, const int32_t readLen,
-    const int8_t* mat, const int32_t n, const int32_t bias,
-    const int8_t score_size);
-
-#ifdef __AVX2__
-s_profile_avx2* ssw_init_avx2 (
-    const int8_t* read, const int32_t readLen,
-    const int8_t* mat, const int32_t n, const int32_t bias,
-    const int8_t score_size);
-#endif
-
-/*!	@function	Release the memory allocated by function ssw_init.
-	@param	p	pointer to the query profile structure, may be nullptr
-*/
-void init_destroy_sse2 (s_profile_sse2* p);
-
-#ifdef __AVX2__
-void init_destroy_avx2 (s_profile_avx2* p);
-#endif
-
+	static s_profile* create(const int8_t* _read, const int32_t _readLen,
+    const int8_t* _mat, const int32_t _n, const int32_t _bias, const int8_t score_size);
+	virtual ~s_profile();
 // @function	ssw alignment.
 /*!	@function	Do Striped Smith-Waterman alignment.
 	@param	prof	pointer to the query profile structure
@@ -152,8 +183,7 @@ void init_destroy_avx2 (s_profile_avx2* p);
 			while bit 8 is not, the function will return cigar only when both criteria are fulfilled. All returned positions are
 			0-based coordinate.
 */
-s_align* ssw_align_sse2 (
-    const s_profile_sse2* prof,
+s_align* align (
     const int8_t* ref,
     int32_t refLen,
     const uint8_t weight_gapO,
@@ -162,24 +192,72 @@ s_align* ssw_align_sse2 (
     const uint16_t filters,
     const int32_t filterd,
     const int32_t maskLen);
+};
 
-#ifdef __AVX2__
-s_align* ssw_align_avx2 (
-    const s_profile_avx2* prof,
-    const int8_t* ref,
-    int32_t refLen,
-    const uint8_t weight_gapO,
-    const uint8_t weight_gapE,
-    const uint8_t flag,
-    const uint16_t filters,
-    const int32_t filterd,
-    const int32_t /*maskLen*/);
-#endif
+class s_profile_baseline : public s_profile
+{
+	friend class s_profile;
 
-/*!	@function	Release the memory allocated by function ssw_align.
-	@param	a	pointer to the alignment result structure
-*/
-void align_destroy (s_align* a);
+	protected:
+	s_profile_baseline(const int8_t* _read, const int32_t _readLen,
+		const int8_t* _mat, const int32_t _n, const int32_t _bias);
+
+	protected:
+	alignment_end* ssw_byte (const int8_t* ref,
+		int8_t ref_dir,
+		int32_t refLen,
+		int32_t readLen,
+		const uint8_t weight_gapO, 
+		const uint8_t weight_gapE,
+		const int8_t* profile,
+		uint8_t terminate,
+		int32_t maskLen);
+
+	alignment_end* ssw_word(const int8_t* ref,
+		int8_t ref_dir,
+		int32_t refLen,
+		int32_t readLen,
+		const uint8_t weight_gapO,
+		const uint8_t weight_gapE,
+		const int16_t* profile,
+		uint16_t terminate,
+		int32_t maskLen);
+};
+
+class s_profile_sse2 : public s_profile
+{
+	friend class s_profile;
+
+	protected:
+	s_profile_sse2(const int8_t* _read, const int32_t _readLen,
+		const int8_t* _mat, const int32_t _n, const int32_t _bias);
+
+	protected:
+	alignment_end* ssw_byte (const int8_t* ref,
+		int8_t ref_dir,
+		int32_t refLen,
+		int32_t readLen,
+		const uint8_t weight_gapO, 
+		const uint8_t weight_gapE,
+		const int8_t* profile,
+		uint8_t terminate,
+		int32_t maskLen);
+
+	alignment_end* ssw_word(const int8_t* ref,
+		int8_t ref_dir,
+		int32_t refLen,
+		int32_t readLen,
+		const uint8_t weight_gapO,
+		const uint8_t weight_gapE,
+		const int16_t* profile,
+		uint16_t terminate,
+		int32_t maskLen);
+};
+
+
+
+int32_t ssw_get_bias (
+    const int8_t* mat, const int32_t n);
 
 /*! @function:
      1. Calculate the number of mismatches.
